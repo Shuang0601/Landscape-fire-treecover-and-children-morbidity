@@ -1,4 +1,5 @@
 To ensure the robustness of the results, the following sensitivity analyses were performed:
 1) placing the knots for natural cubic spline of LFS PM2.5 at 10th and 90th or 20th and 80th centiles of the mean exposure distribution.
-2) changing the df for meteorological variables: temperature from 4 to 3 and 5, RH from 3 to 4 and 5. 
-3) changing df for time trends from 7 to 8 and 9. 
+2) reclassifying tree cover level into low, middle, or high levels based on tertiles to assess potential misclassification bias
+3) additional adjusting for non-fire PM2.5
+4) original 30-m tree-cover data were aggregated to 0.25° × 0.25°, matching the spatial resolution of the LFS PM2.5 estimates. 

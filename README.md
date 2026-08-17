@@ -1,1 +1,1 @@
-This file provides data and main codes for performing time-series analyses presented in the paper: Impact of global short-term landscape fire sourced PM2.5 exposure on child cause-specific morbidity: a study in multiple countries and territories
+This file provides data and main codes for performing data analyses presented in the paper: Landscape Fire Sourced PM2.5, Cause-specific Pediatric Hospitalizations, and the Role of Tree Cover

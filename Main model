@@ -2,5 +2,390 @@
 library(dlnm) ; library(mvmeta) ; library(splines) ; library(tsModel)
 library(mixmeta); library(ggplot2); library(gnm) ; library(lubridate)
 
-The code will be uploaded when the paper is accecpted.
+##RR lag01 first stage####
 
+data <- readRDS(r"(.....\Hospitalization.rds)")
+
+data_list <- split(data, data$LocIDLarge)
+
+outcomes <- c("All",
+                   "All_CVD","All_Resp","All_Infectious","All_Digestive",
+                   "All_Diabetes","All_Cancer","All_Nervous","All_Renal")
+
+lagday <- 1
+df_lag <- 1
+
+## try parallel
+numCores <- 15
+registerDoParallel(numCores)
+t1 <- Sys.time()
+
+airpar_eAsia_for_RR <- foreach(i = seq_along(data_list), .packages = c("dlnm",'tidyverse','splines','mixmeta','lubridate','data.table')) %dopar% {
+  
+  dat_mid = data_list[[i]]
+  dat_mid$time = 1:nrow(dat_mid)
+  dat_mid$dow = weekdays(dat_mid$date)
+  df_time = round(nrow(dat_mid)/365.25)*7
+  dat_mid$rhum_mvavg = frollmean(dat_mid$RH,8)
+  increase_mid = 1
+  
+  arg.temp <- list(fun = "ns", knots = quantile(dat_mid$tmean, c(10, 75, 90) / 100, na.rm = TRUE), intercept = TRUE)
+  cb.temp <- crossbasis(dat_mid$tmean, lag = 21, argvar = arg.temp,
+                         arglag = list(knots = logknots(21, 3)))
+  
+  
+  airpar_eAsia_for_RR <- data.frame()
+  for (outcome in outcomes) {
+    if(outcome %in% names(dat_mid) & mean(dat_mid[[outcome]]) >= 0.01){
+
+      dat_mid$x = dat_mid[["fire_PM25"]]
+      dat_mid$y = dat_mid[[outcome]] 
+      
+    
+      cb_air = crossbasis(dat_mid$x,lag = lagday,argvar=list(fun="lin"),
+                          arglag=list(fun='ns'))
+
+      formula_mid = as.formula(paste0('y ~ cb_air + dow + ns(time,df=',df_time,') + cb.temp + ns(rhum_mvavg, df = 3)'))
+      
+      
+      try_model = try(glm(formula_mid,data = dat_mid,family=quasipoisson))
+      if (class(try_model)[1] =="try-error"){next}
+      
+      model =glm(formula_mid,data = dat_mid,family=quasipoisson)
+      
+      try_crosspred = try(crosspred(cb_air,model,cen= 0,at = increase_mid))
+      if (class(try_crosspred)[1] =="try-error"){next}
+      
+      mid1 = crosspred(cb_air,model,cen= 0,at = increase_mid)
+      
+    
+      # STORE PARAMETERS FOR AIRPAR
+      ncoef = length(coef(mid1))
+      par = c(coef(mid1), vechMat(vcov(mid1)))
+      names(par) = c(paste0("coef", seq(ncoef)),
+                     paste0("vcov", seq(ncoef*(ncoef+1)/2)))
+      
+      
+      airpar_eAsia_for_RR = bind_rows(airpar_eAsia_for_RR, data.frame(cityname = unique(dat_mid$LocIDLarge),
+                                                                      pollutant = 'fire_PM25',outcome = outcome,maxlag = lagday,t(par)))
+    }else{airpar_eAsia_for_RR = bind_rows(airpar_eAsia_for_RR, data.frame(cityname = unique(dat_mid$LocIDLarge),pollutant = 'fire_PM25',outcome = outcome,maxlag = lagday))}
+    
+  }
+  
+  return(airpar_eAsia_for_RR)
+}
+stopImplicitCluster()
+t2 <- Sys.time()
+t2-t1
+
+length(airpar_eAsia_for_RR)
+airpar_eAsia_for_RR <- bind_rows(airpar_eAsia_for_RR)
+airpar_eAsia_for_RR1 <- airpar_eAsia_for_RR[!is.na(airpar_eAsia_for_RR$coef1),]
+length(unique(airpar_eAsia_for_RR1$cityname))
+
+save(airpar_eAsia_for_RR1, file = '.../resultP1_RR_lag01_all.Rdata')
+
+##RR lag01 second stage####
+load('.../resultP1_RR_lag01_all.Rdata')
+
+load('..../meanexposure.Rdata')
+
+# Pool lag
+lagday <- 1
+df_lag <- 1
+
+outcomes <- c("All",
+                   "All_CVD","All_Resp","All_Infectious","All_Digestive",
+                   "All_Diabetes","All_Cancer","All_Nervous","All_Renal")
+
+t1 <- Sys.time()
+result_RR <- data.frame()
+result_coef <- data.frame()
+for (outcome in outcomes) {
+  
+  mid1 = airpar_eAsia_for_RR1[airpar_eAsia_for_RR1$outcome == outcome,]
+  mid1$Country <- substr(mid1$cityname,1,3)
+  
+  cityind_mid = mid1[,c('cityname','Country')]
+  
+  coef_mid = as.matrix(mid1[,grep("coef", names(mid1))])
+  vcov_mid = as.matrix(mid1[,grep("vcov", names(mid1))])
+  
+  
+  model_mid = mixmeta(coef_mid~1, vcov_mid, method="reml")
+  
+  # add random effects in meta-model
+  #model_mid = mixmeta(coef_mid, vcov_mid, method="reml",
+  #random=~1|country/cityname,
+  #data = cityind_mid,control=list(showiter=F))
+  
+   air_mean_mid <- meanexposure$value
+  
+   bvar_mid = crossbasis(air_mean_mid,lag = lagday,argvar=list(fun="lin"),
+                         arglag = list(fun="ns"))
+  
+  # PREDICT THE ASSOCIATION
+   cp_mid = crosspred(bvar_mid, coef=coef(model_mid), vcov=vcov(model_mid), model.link="log",
+                     at=10, cen = 0) 
+  
+  logRR_fit <- unname(cp_mid$allfit) 
+  logRR_se <- unname(cp_mid$allse) 
+  z_values <- logRR_fit / logRR_se  
+  p_values <- 2 * (1 - pnorm(abs(z_values)))  
+   
+  data_mid = data.frame(pollutant = 'fire_PM25',
+                        outcome = outcome,
+                        lagday = 1,
+                        RR = unname(cp_mid$allRRfit),
+                        RRlow = unname(cp_mid$allRRlow),
+                        RRhigh = unname(cp_mid$allRRhigh),
+                        p=p_values)
+  print(outcome)
+   # STORE PARAMETERS FOR AIRPAR
+  ncoef = length(coef(cp_mid))
+  par = c(coef(cp_mid), vechMat(vcov(cp_mid)))
+  names(par) = c(paste0("coef", seq(ncoef)),
+                 paste0("vcov", seq(ncoef*(ncoef+1)/2)))
+  
+  data_coef = data.frame(pollutant = "fire_PM25",
+                         outcome = outcome,
+                         t(par))
+  
+  result_RR = rbind(result_RR,data_mid)
+  result_coef = bind_rows(result_coef,data_coef)
+}
+
+t2 <- Sys.time()
+t2-t1
+
+result_RR$country <- 'Global'
+
+save(result_RR,file = '..../resultP2_lag01_all.Rdata')
+
+saveRDS(result_coef,file = '...../resultP2_coef_all.rds')
+
+
+##modification by treecover
+load('...../meanexposure.Rdata')
+load('...../resultP1_RR_lag01_all.Rdata')
+load("...../metainfoNCgreenness.RData") 
+
+airpar_eAsia_for_RR1 <- left_join(airpar_eAsia_for_RR1,metainfo,by=c("cityname"="location_id"))
+
+lagday <- 1
+
+outcomes <- c("All",
+                   "All_CVD","All_Resp","All_Infectious","All_Digestive",
+                   "All_Diabetes","All_Cancer","All_Nervous","All_Renal")
+
+### begin meta
+
+group.list <- c("tree_cut2_all","tree_cut3_all")
+
+### Pool RR by subgroups
+result_RR_subgroup <- data.frame()
+result_coef_subgroup <- data.frame()
+
+for (i in seq_along(outcomes)) {
+  outcome <- outcomes[i]
+  result_mid <- airpar_eAsia_for_RR1[airpar_eAsia_for_RR1$outcome == outcome,]
+  
+  result_RR <- data.frame()
+  result_coef <- data.frame()
+  
+  for (j in seq_along(group.list)) {
+    group <- group.list[j]
+    
+
+    if (!(group %in% colnames(result_mid))) {
+      warning(paste("Skipping", group, "because it does not exist in the dataset"))
+      next  
+    }
+    
+    class_list <- unique(na.omit(result_mid[[group]]))
+    
+    for (ii in seq_along(class_list)) {
+      class <- as.character(class_list[ii])
+      mid1 <- result_mid[result_mid[[group]] == class,]
+      
+      if (nrow(mid1) == 0) {
+        warning(paste("Skipping class", class, "in group", group, "due to empty subset"))
+        next  
+      }
+
+      coef_mid <- as.matrix(mid1[,grep("coef", names(mid1))])
+      vcov_mid <- as.matrix(mid1[,grep("vcov", names(mid1))])
+      
+      if (nrow(coef_mid) == 0 || ncol(vcov_mid) == 0) {
+        warning(paste("Skipping class", class, "due to missing coef or vcov"))
+        next
+      }
+      
+      model_mid <- mixmeta(coef_mid, vcov_mid, method="reml")
+      
+      air_mean_mid <- meanexposure$value
+      
+      bvar_mid <- crossbasis(as.numeric(air_mean_mid), lag = lagday,
+                             argvar = list(fun = "lin"),
+                             arglag = list(fun = 'ns'))
+      
+      # PREDICT THE ASSOCIATION
+      cp_mid = crosspred(bvar_mid, coef=coef(model_mid), vcov=vcov(model_mid), model.link="log",
+                       at=10, cen = 0)
+      #cp_mid <- crosspred(bvar_mid, coef = coef(model_mid), vcov = vcov(model_mid),
+       #                   model.link = "log", at = 1, cen = 0)
+      
+      data_RR <- data.frame(pollutant = "fire_PM25",
+                            outcome = outcome,
+                            subgroup = group,
+                            class = class,
+                            x = as.numeric(unname(cp_mid$predvar)),
+                            RR = unname(cp_mid$allRRfit),
+                            RRlow = unname(cp_mid$allRRlow),
+                            RRhigh = unname(cp_mid$allRRhigh))
+      
+      # STORE PARAMETERS FOR AIRPAR
+      ncoef <- length(coef(cp_mid))
+      par <- c(coef(cp_mid), vechMat(vcov(cp_mid)))
+      names(par) <- c(paste0("coef", seq(ncoef)),
+                      paste0("vcov", seq(ncoef*(ncoef+1)/2)))
+      
+      data_coef <- data.frame(pollutant = "fire_PM25",
+                              outcome = outcome,
+                              subgroup = group,
+                              class = class,
+                              t(par))
+      
+      result_RR <- bind_rows(result_RR, data_RR)
+      result_coef <- bind_rows(result_coef, data_coef)
+    }
+    
+  }
+  
+  result_RR_subgroup <- bind_rows(result_RR_subgroup, result_RR)
+  result_coef_subgroup <- bind_rows(result_coef_subgroup, result_coef)
+  
+  print(i)
+}
+
+##rerun to save the result per 1 increase
+save(result_coef_subgroup,file = '......../resultP2_coef_greenness_per1.Rdata')
+
+### calculate the SE and coef for P for difference
+result_RR_subgroup$Se <- (log(result_RR_subgroup$RRhigh) - log(result_RR_subgroup$RRlow)) / (2 * 1.96)
+result_RR_subgroup$Beta <- log(result_RR_subgroup$RR)
+
+### calculate P for difference
+
+group.list <- c("tree_cut2_all")
+
+result_meta_subgroup1 <- data.frame()
+
+for (i in seq_along(outcomes)) {
+  outcome <- outcomes[i]
+  result_mid <- result_RR_subgroup[result_RR_subgroup$outcome == outcome,]
+  data_meta_mid<- data.frame()
+   for (j in seq_along(group.list)) {
+    group <- group.list[j]
+
+    result_mid_mid <- result_mid[result_mid$subgroup == group,]
+    z_low = abs(c(zval = (result_mid_mid[result_mid_mid$class == 'M1',]$Beta - result_mid_mid[result_mid_mid$class == 'M2',]$Beta)/sqrt(result_mid_mid[result_mid_mid$class == 'M1',]$Se^2 + result_mid_mid[result_mid_mid$class == 'M2',]$Se^2)))
+    P_low = round(2*(1-pnorm(z_low)),6)
+
+   
+    data_meta = data.frame(pollutant = "fire_PM25",
+                         outcome = outcomes[i],
+                         subgroup = group,
+                         class = c("M1","M2"),
+                      
+                         x = as.numeric(unname(cp_mid$predvar)),
+
+                         P_val = c("Ref",P_low))
+
+    data_meta_mid <- bind_rows(data_meta_mid,data_meta)
+  }
+  
+  result_meta_subgroup1 <- bind_rows(result_meta_subgroup1,data_meta_mid)
+  print(i)
+}
+
+
+### calculate P for difference
+
+group.list <- c("tree_cut3_all")
+
+result_meta_subgroup2 <- data.frame()
+
+for (i in seq_along(outcomes)) {
+  outcome <- outcomes[i]
+  result_mid <- result_RR_subgroup[result_RR_subgroup$outcome == outcome,]
+  data_meta_mid<- data.frame()
+   for (j in seq_along(group.list)) {
+    group <- group.list[j]
+
+    result_mid_mid <- result_mid[result_mid$subgroup == group,]
+    z_low = abs(c(zval = (result_mid_mid[result_mid_mid$class == 'T1',]$Beta - result_mid_mid[result_mid_mid$class == 'T2',]$Beta)/sqrt(result_mid_mid[result_mid_mid$class == 'T1',]$Se^2 + result_mid_mid[result_mid_mid$class == 'T2',]$Se^2)))
+    P_low = round(2*(1-pnorm(z_low)),6)
+    
+    z_high = abs(c(zval = (result_mid_mid[result_mid_mid$class == 'T1',]$Beta - result_mid_mid[result_mid_mid$class == 'T3',]$Beta)/sqrt(result_mid_mid[result_mid_mid$class == 'T1',]$Se^2 + result_mid_mid[result_mid_mid$class == 'T3',]$Se^2)))
+    P_high = round(2*(1-pnorm(z_high)),6)
+   
+    data_meta = data.frame(pollutant = "fire_PM25",
+                         outcome = outcomes[i],
+                         subgroup = group,
+                         class = c("T1","T2","T3"),
+                      
+                         x = as.numeric(unname(cp_mid$predvar)),
+
+                         P_val = c("Ref",P_low,P_high))
+
+    data_meta_mid <- bind_rows(data_meta_mid,data_meta)
+  }
+  
+  result_meta_subgroup2 <- bind_rows(result_meta_subgroup2,data_meta_mid)
+  print(i)
+}
+
+result_meta_subgroup <- rbind(result_meta_subgroup1,result_meta_subgroup2)
+
+result_RR_subgroup <- left_join(result_RR_subgroup,result_meta_subgroup,by = c("outcome","subgroup","class"))
+result_RR_subgroup <- result_RR_subgroup[,-c(1,5,11:12)]
+
+#### P for difference overall
+
+result_meta_subgroup <- data.frame()
+
+for (i in seq_along(outcomes)) {
+  outcome <- outcomes[i]
+  result_mid <- result_coef_subgroup[result_coef_subgroup$outcome == outcome,]
+  result_meta <- data.frame()
+  
+  data_meta_mid <- data.frame()
+  for (j in seq_along(group.list)) {
+    group <- group.list[j]
+    result_mid_mid <- result_mid[result_mid$subgroup == group,]
+    
+    coef_mid = as.matrix(result_mid_mid[,grep("coef", names(result_mid_mid))])
+    vcov_mid = as.matrix(result_mid_mid[,grep("vcov", names(result_mid_mid))])
+    
+    meta_model<-mixmeta(coef_mid~1,vcov_mid,method = "reml")
+    meta_data <- summary(meta_model)
+    
+    data_meta = data.frame(
+                           outcome = outcomes[i],
+                           subgroup = group,
+                           P_val = meta_data$qstat$pvalue[1])
+    data_meta_mid <- bind_rows(data_meta_mid,data_meta)
+  }
+  
+  result_meta_subgroup <- bind_rows(result_meta_subgroup,data_meta_mid)
+  print(i)
+}
+
+colnames(result_meta_subgroup)[3] <- 'P_val_overall'
+result_RR_subgroup <- left_join(result_RR_subgroup,result_meta_subgroup, by = c("outcome","subgroup"))
+result_RR_subgroup$P_val_overall <- round(result_RR_subgroup$P_val_overall,6)
+
+result_RR_subgroup$RR_full <- paste0(round(result_RR_subgroup$RR,3), " (", round(result_RR_subgroup$RRlow,3), ", ", round(result_RR_subgroup$RRhigh,3), ")")
+
+saveRDS(result_RR_subgroup,"...../NCpaper_greenness.rds")

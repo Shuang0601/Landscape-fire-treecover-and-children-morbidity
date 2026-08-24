@@ -1,1 +1,170 @@
-The code will be uploaded when the paper is accecpted.
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+
+##Figure 2
+load(.....Figure2_upload.Rdata)
+
+# Consistent colour scheme with the ER figure
+class_colors <- c(
+  "Overall"    = "black",
+  "Low level"  = "#d95f02",
+  "High level" = "#1b9e77"
+)
+
+# Create plots
+create_plots_tree <- function() {
+  
+  plot_list <- list()
+  
+  for (outcome1 in outcomes) {
+    
+    dat <- sub_df %>%
+      dplyr::filter(outcome == outcome1)
+    
+    if (nrow(dat) == 0) next
+    
+    # Dynamically set the position of significance markers
+    y_range <- diff(range(c(dat$RRlow, dat$RRhigh), na.rm = TRUE))
+    if (is.na(y_range) || y_range == 0) y_range <- 0.001
+    
+    dat <- dat %>%
+      mutate(
+        y_star = RRhigh + 0.06 * y_range
+      )
+    
+    # Only show x-axis labels in the bottom row
+    show_x_label <- outcome1 %in% c("Cancer", "Digestive", "Renal")
+    
+    # Only show y-axis title in the left column
+    show_y_label <- outcome1 %in% c("All-cause", "Cardiovascular", "Cancer")
+    
+    p <- ggplot(dat, aes(x = class2, y = RR, color = class2)) +
+      geom_hline(
+        yintercept = 1,
+        linetype = "dashed",
+        linewidth = 0.4,
+        colour = "grey40"
+      ) +
+      geom_point(
+        size = 2.8,
+        shape = 16
+      ) +
+      geom_errorbar(
+        aes(ymin = RRlow, ymax = RRhigh),
+        width = 0.18,
+        linewidth = 0.6
+      ) +
+      geom_text(
+        aes(y = y_star, label = signif),
+        vjust = 0,
+        size = 4.5,
+        colour = "black",
+        family = "serif"
+      ) +
+      ggtitle(outcome1) +
+      xlab("") +
+      ylab(ifelse(show_y_label, "Relative Risk (95% CI)", "")) +
+      scale_color_manual(values = class_colors) +
+      scale_x_discrete(
+        labels = c(
+          "Overall"    = "Overall",
+          "Low level"  = "Low\ntree cover",
+          "High level" = "High\ntree cover"
+        )
+      ) +
+      scale_y_continuous(
+        expand = expansion(mult = c(0.06, 0.18))
+      ) +
+      coord_cartesian(clip = "off") +
+      theme_bw() +
+      theme(
+        text = element_text(size = 13, family = "serif"),
+        
+        plot.title = element_text(
+          size = 14,
+          face = "bold",
+          family = "serif",
+          hjust = 0
+        ),
+        
+        axis.text.y = element_text(
+          size = 11,
+          colour = "black",
+          family = "serif"
+        ),
+        
+        axis.text.x = if (show_x_label) {
+          element_text(
+            size = 10.5,
+            colour = "black",
+            family = "serif",
+            lineheight = 0.9
+          )
+        } else {
+          element_blank()
+        },
+        
+        axis.ticks.x = if (show_x_label) {
+          element_line(color = "black", linewidth = 0.4)
+        } else {
+          element_blank()
+        },
+        
+        axis.title.x = element_blank(),
+        
+        axis.title.y = element_text(
+          size = 12,
+          colour = "black",
+          family = "serif"
+        ),
+        
+        legend.position = "none",
+        
+        plot.background = element_blank(),
+        panel.border = element_rect(
+          color = "black",
+          fill = NA,
+          linewidth = 0.5
+        ),
+        axis.line = element_line(
+          color = "black",
+          linewidth = 0.4
+        ),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        
+        plot.margin = margin(8, 8, 8, 8, "pt")
+      )
+    
+    plot_list[[outcome1]] <- p
+  }
+  
+  return(plot_list)
+}
+
+plot_list2 <- create_plots_tree()
+
+# Combine nine panels
+grid_plot2 <- 
+  (plot_list2[["All-cause"]]      | plot_list2[["Respiratory"]]  | plot_list2[["Infectious"]]) /
+  (plot_list2[["Cardiovascular"]] | plot_list2[["Neurological"]] | plot_list2[["Diabetes"]]) /
+  (plot_list2[["Cancer"]]         | plot_list2[["Digestive"]]    | plot_list2[["Renal"]]) +
+  plot_layout(
+    widths = c(1, 1, 1),
+    heights = c(1, 1, 1)
+  )
+
+# Export figure
+tiff(
+  "...../NCpaper_combineRR_tree_overall_revised.tiff",
+  width = 15.5,
+  height = 10.8,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+
+print(grid_plot2)
+
+dev.off()

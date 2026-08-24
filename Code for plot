@@ -168,3 +168,249 @@ tiff(
 print(grid_plot2)
 
 dev.off()
+
+
+
+##Figure 3
+
+load('..../resultP2_ER_all_lag01_tree.Rdata')
+
+result_tree_RR <- result_tree_RR %>%
+  mutate(
+    outcome = recode(
+      outcome,
+      "All" = "All-cause",
+      "All_Resp" = "Respiratory",
+      "All_Infectious" = "Infectious",
+      "All_CVD" = "Cardiovascular",
+      "All_Nervous" = "Neurological",
+      "All_Diabetes" = "Diabetes",
+      "All_Cancer" = "Cancer",
+      "All_Digestive" = "Digestive",
+      "All_Renal" = "Renal"
+    )
+  )
+
+outcomes <- c(
+  "All-cause", "Respiratory", "Infectious",
+  "Cardiovascular", "Neurological", "Diabetes",
+  "Cancer", "Digestive", "Renal"
+)
+
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+
+# Function to create individual plots
+create_stratified_plot <- function(data, outcome_name,
+                                   show_x_title = FALSE,
+                                   show_y_title = FALSE,
+                                   show_legend = FALSE) {
+  
+  result_out <- data[data$outcome == outcome_name, ]
+  
+  p <- ggplot(result_out, aes(x = x, y = RR, color = group, fill = group)) +
+    geom_ribbon(
+      aes(ymin = RRlow, ymax = RRhigh),
+      alpha = 0.20,
+      colour = NA
+    ) +
+    geom_line(linewidth = 0.8) +
+    geom_hline(
+      yintercept = 1.000,
+      color = "grey40",
+      linetype = "dashed",
+      linewidth = 0.6
+    ) +
+    ggtitle(outcome_name) +
+    xlab(
+      if (show_x_title) {
+        expression("Wildfire-specific PM"[2.5] * " (" * mu * "g/m"^3 * ")")
+      } else {
+        NULL
+      }
+    ) +
+    ylab(if (show_y_title) "Relative Risk (95% CI)" else NULL) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(
+        size = 15,
+        face = "bold",
+        family = "serif",
+        hjust = 0
+      ),
+      axis.text = element_text(
+        size = 12,
+        colour = "black",
+        family = "serif"
+      ),
+      axis.title.x = element_text(
+        size = 13,
+        colour = "black",
+        family = "serif"
+      ),
+      axis.title.y = element_text(
+        size = 13,
+        colour = "black",
+        family = "serif"
+      ),
+      legend.position = if (show_legend) "bottom" else "none",
+      legend.direction = "vertical",
+      legend.box = "vertical",
+      legend.title = element_text(
+        size = 11,
+        family = "serif",
+        hjust = 0.5),
+      legend.text = element_text(
+        size = 10.5,
+        family = "serif"),
+      legend.key.size = unit(0.45, "cm"),
+      legend.spacing.y = unit(0.05, "cm"),
+      legend.margin = margin(t = 0, r = 0, b = 0, l = 0),
+      legend.box.margin = margin(t = 14, r = 0, b = 0, l = 0),
+      panel.grid.major = element_line(color = "grey90", linewidth = 0.3),
+      panel.grid.minor = element_line(color = "grey95", linewidth = 0.2),
+      panel.border = element_rect(
+        color = "black",
+        fill = NA,
+        linewidth = 0.5
+      ),
+      plot.margin = margin(6, 7, 6, 7, "pt")
+    ) +
+    labs(
+      color = "Tree cover",
+      fill = "Tree cover"
+    ) +
+scale_color_manual(
+  values = c(
+    "M1" = "#d95f02",
+    "M2" = "#1b9e77"
+  ),
+  breaks = c("M2", "M1"),
+  labels = c(
+    "M2" = "High",
+    "M1" = "Low"
+  )
+) +
+scale_fill_manual(
+  values = c(
+    "M1" = "#d95f02",
+    "M2" = "#1b9e77"
+  ),
+  breaks = c("M2", "M1"),
+  labels = c(
+    "M2" = "High",
+    "M1" = "Low"
+  )
+) +
+guides(
+  color = guide_legend(
+    ncol = 1,
+    byrow = TRUE,
+    title.position = "top"
+  ),
+  fill = guide_legend(
+    ncol = 1,
+    byrow = TRUE,
+    title.position = "top"
+  )
+)
+  
+  return(p)
+}
+
+
+plot1 <- create_stratified_plot(
+  result_tree_RR,
+  outcomes[1],
+  show_x_title = TRUE,
+  show_y_title = TRUE,
+  show_legend = TRUE
+)
+
+grid_plot1 <- 
+  (plot_spacer()) /
+  (plot1) /
+  (plot_spacer()) +
+  plot_layout(heights = c(0.9, 2.1, 0.8))
+
+
+# Remaining plots: no legends
+remaining_plots <- list(
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[2],
+    show_y_title = TRUE,
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[3],
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[4],
+    show_y_title = TRUE,
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[5],
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[6],
+    show_y_title = TRUE,
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[7],
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[8],
+    show_x_title = TRUE,
+    show_y_title = TRUE,
+    show_legend = FALSE
+  ),
+  create_stratified_plot(
+    result_tree_RR,
+    outcomes[9],
+    show_x_title = TRUE,
+    show_legend = FALSE
+  )
+)
+
+grid_plot <- 
+  (remaining_plots[[1]] | remaining_plots[[2]]) /
+  (remaining_plots[[3]] | remaining_plots[[4]]) /
+  (remaining_plots[[5]] | remaining_plots[[6]]) /
+  (remaining_plots[[7]] | remaining_plots[[8]])
+
+final_plot <- plot_grid(
+  grid_plot1,
+  grid_plot,
+  ncol = 2,
+  rel_widths = c(2, 3)
+)
+
+tiff(
+  "..../NCpaper_ER_tree_lag01_revised.tiff",
+  width = 14.5,
+  height = 10,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+
+print(final_plot)
+
+dev.off()
+
+
+##Figure4
+

@@ -3,7 +3,7 @@ library(ggplot2)
 library(patchwork)
 
 ##Figure 2
-load(.....Figure2_upload.Rdata)
+load(.....RR.Rdata)
 
 # Consistent colour scheme with the ER figure
 class_colors <- c(

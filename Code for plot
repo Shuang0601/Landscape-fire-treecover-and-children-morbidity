@@ -414,3 +414,185 @@ dev.off()
 
 ##Figure4
 
+load(.../af_tree.rdata")
+class_colors <- c(
+  "Low"  = "#d95f02",
+  "High" = "#1b9e77"
+)
+
+plot_tree_gdp4_blocks <- function(df) {
+  
+  d <- df %>%
+    filter(gdp %in% c("Overall", "Low", "Mid", "High")) %>%
+    mutate(
+      gdp = factor(
+        gdp,
+        levels = c("Overall", "Low", "Mid", "High")
+      ),
+      
+      gdp_lab = factor(
+        gdp,
+        levels = c("Overall", "Low", "Mid", "High"),
+        labels = c("Overall", "Low GDP", "Middle GDP", "High GDP")
+      ),
+      
+      class2 = dplyr::recode(
+        as.character(class),
+        "Low level"  = "Low",
+        "High level" = "High"
+      ),
+      class2 = factor(class2, levels = c("Low", "High")),
+      
+      gdp_num = as.numeric(gdp),
+      class_num = ifelse(class2 == "Low", 1, 2),
+      x_pos = (gdp_num - 1) * 2 + class_num
+    )
+  
+  p <- ggplot(d, aes(x = x_pos, y = AF_plot, fill = class2)) +
+    
+    geom_col(width = 0.60) +
+    
+    geom_errorbar(
+      aes(ymin = AF_low_plot, ymax = AF_high_plot),
+      width = 0.18,
+      linewidth = 0.65,
+      colour = "black"
+    ) +
+    
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      colour = "grey55",
+      linewidth = 0.45
+    ) +
+    
+
+    geom_vline(
+      xintercept = c(2.5, 4.5, 6.5),
+      linetype = "dashed",
+      colour = "grey65",
+      linewidth = 0.45
+    ) +
+    
+    scale_x_continuous(
+      breaks = c(1.5, 3.5, 5.5, 7.5),
+      labels = c("Overall", "Low GDP", "Middle GDP", "High GDP"),
+      limits = c(0.4, 8.6),
+      expand = expansion(mult = c(0.01, 0.01))
+    ) +
+    
+    scale_fill_manual(
+      values = class_colors,
+      name = "Tree cover",
+      breaks = c("High", "Low"),
+      labels = c("High", "Low")
+    ) +
+    
+    facet_wrap(
+      ~ outcome,
+      ncol = 3,
+      scales = "free_y"
+    ) +
+    
+    labs(
+      x = NULL,
+      y = "Attributable Fraction (%)"
+    ) +
+    
+    scale_y_continuous(
+      expand = expansion(mult = c(0.04, 0.08))
+    ) +
+    
+    guides(
+      fill = guide_legend(
+        ncol = 1,
+        byrow = TRUE,
+        title.position = "top"
+      )
+    ) +
+    
+    theme_bw() +
+    
+    theme(
+      text = element_text(family = "serif"),
+      
+      strip.background = element_rect(
+        fill = "grey85",
+        colour = "black",
+        linewidth = 0.4
+      ),
+      
+      strip.text = element_text(
+        size = 11,
+        face = "bold",
+        family = "serif",
+        margin = margin(t = 3, b = 3)
+      ),
+      
+      axis.text.x = element_text(
+        size = 10,
+        colour = "black",
+        family = "serif"
+      ),
+      
+      axis.ticks.x = element_blank(),
+      axis.title.x = element_blank(),
+      
+      axis.text.y = element_text(
+        size = 10,
+        colour = "black",
+        family = "serif"
+      ),
+      
+      axis.title.y = element_text(
+        size = 12,
+        colour = "black",
+        family = "serif"
+      ),
+      
+      legend.position = "right",
+      legend.direction = "vertical",
+      legend.title = element_text(
+        size = 11,
+        family = "serif",
+        face = "bold"
+      ),
+      legend.text = element_text(
+        size = 10.5,
+        family = "serif"
+      ),
+      legend.key.size = unit(0.45, "cm"),
+      legend.spacing.y = unit(0.08, "cm"),
+      
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(
+        colour = "black",
+        fill = NA,
+        linewidth = 0.5
+      ),
+      
+      panel.spacing.x = unit(0.70, "lines"),
+      panel.spacing.y = unit(0.85, "lines"),
+      
+      plot.margin = margin(8, 14, 8, 8, "pt")
+    )
+  
+  return(p)
+}
+
+p_allgdp <- plot_tree_gdp4_blocks(af_tree)
+
+tiff(
+  file.path(base_dir1, "AFAN_Bar_Tree_AllGDP_3x3_revised.tiff"),
+  width = 16,
+  height = 9.5,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+
+print(p_allgdp)
+
+dev.off()
+
